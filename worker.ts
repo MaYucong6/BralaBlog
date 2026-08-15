@@ -997,7 +997,7 @@ async function handleOAuthStart(request: Request, env: Env) {
 	authUrl.searchParams.set("client_id", clientId);
 	authUrl.searchParams.set(
 		"redirect_uri",
-		`${origin}/api/auth/github/callback`,
+		`${origin}/api/github/callback`,
 	);
 	authUrl.searchParams.set("scope", "read:user user:email");
 	authUrl.searchParams.set("state", state);
@@ -1027,7 +1027,7 @@ async function handleOAuthCallback(request: Request, env: Env) {
 				client_id: getRequiredEnv(env, "GITHUB_CLIENT_ID"),
 				client_secret: getRequiredEnv(env, "GITHUB_CLIENT_SECRET"),
 				code,
-				redirect_uri: `${origin}/api/auth/github/callback`,
+				redirect_uri: `${origin}/api/github/callback`,
 			}),
 		},
 	);
@@ -1516,7 +1516,10 @@ async function handleApi(request: Request, env: Env) {
 		}
 		if (pathname === "/api/auth/github/start")
 			return await handleOAuthStart(request, env);
-		if (pathname === "/api/auth/github/callback")
+		if (
+			pathname === "/api/auth/github/callback" ||
+			pathname === "/api/github/callback"
+		)
 			return await handleOAuthCallback(request, env);
 		if (pathname === "/api/auth/logout") return logout();
 		if (pathname === "/api/admin/session")
