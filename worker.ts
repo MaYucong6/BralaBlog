@@ -1111,7 +1111,44 @@ async function handleOAuthCallback(request: Request, env: Env) {
 		exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
 	};
 	const ticket = await signLoginTicket(env, session);
-	return redirect(`/admin/#login_ticket=${encodeURIComponent(ticket)}`);
+	return oauthCompletePage(ticket);
+}
+
+function oauthCompletePage(ticket: string) {
+	const encodedTicket = JSON.stringify(ticket).replace(/</g, "\\u003c");
+	return new Response(
+		`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>正在完成登录</title>
+</head>
+<body style="font-family:system-ui,sans-serif;padding:2rem">
+  <p id="status">正在完成 GitHub 登录...</p>
+  <script>
+    const ticket = ${encodedTicket};
+    fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket }),
+      cache: "no-store",
+    }).then((response) => {
+      if (!response.ok) throw new Error("登录会话建立失败");
+      location.replace("/admin/posts/");
+    }).catch((error) => {
+      document.getElementById("status").textContent = error.message;
+    });
+  </script>
+</body>
+</html>`,
+		{
+			headers: {
+				"Content-Type": "text/html; charset=UTF-8",
+				"Cache-Control": "no-store",
+			},
+		},
+	);
 }
 
 async function handleSessionExchange(request: Request, env: Env) {
