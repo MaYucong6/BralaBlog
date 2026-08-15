@@ -1,66 +1,47 @@
-name: Manual Deploy to GitHub Pages
+name: Deploy BralaBlog to Cloudflare
 
 on:
   workflow_dispatch:
 
-# Pages 部署需要的权限
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# 确保只有一个部署任务同时运行
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure GitHub Pages paths
-        run: |
-          echo "PUBLIC_SITE_URL=https://kite1024.xyz" >> "$GITHUB_ENV"
-          echo "PUBLIC_BASE_PATH=/" >> "$GITHUB_ENV"
-      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          
+          node-version: 22
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9.14.4
           run_install: false
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-          
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-      
+        run: pnpm install --frozen-lockfile
+
       - name: Build site
         run: pnpm run build
+        env:
+          PUBLIC_SITE_URL: https://yun117.fun
+          PUBLIC_BASE_PATH: /
 
-      - name: Create .nojekyll file
-        run: touch dist/.nojekyll
-      
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Prepare Cloudflare assets
+        run: |
+          cp -a dist dist-preview
+          rm -f dist-preview/pio/models/live2d/snow_miku/textures/texture_00.png
+          rm -f "dist-preview/pio/models/spine/firefly/audio/使一颗心免于哀伤-哼唱.wav"
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
         with:
-          path: dist  # Astro默认构建输出目录
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
