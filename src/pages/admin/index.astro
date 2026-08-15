@@ -48,6 +48,21 @@ const description = "BralaBlog 网页端内容管理后台。";
 			location.reload();
 		}
 
+		async function exchangeLoginTicket() {
+			const ticket = new URLSearchParams(location.hash.slice(1)).get("login_ticket");
+			if (!ticket) return;
+			history.replaceState(null, "", `${location.pathname}${location.search}`);
+			const response = await fetch("/api/auth/session", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ ticket }),
+				cache: "no-store",
+			});
+			if (!response.ok) {
+				throw new Error("GitHub 登录会话建立失败。");
+			}
+		}
+
 		function errorMessage(code) {
 			const messages = {
 				oauth_state: "登录状态校验失败，请重新登录。",
@@ -57,6 +72,7 @@ const description = "BralaBlog 网页端内容管理后台。";
 		}
 
 		async function initAdmin() {
+			await exchangeLoginTicket();
 			if (error && panel) {
 				panel.innerHTML = `<p class="admin-error">${escapeHtml(errorMessage(error))}</p>`;
 			}

@@ -36,6 +36,10 @@ type AdminSession = {
 	exp: number;
 };
 
+type LoginTicket = AdminSession & {
+	purpose: "oauth-login";
+};
+
 type GitHubContentFile = {
 	name: string;
 	path: string;
@@ -94,6 +98,7 @@ type FriendInput = {
 
 const SESSION_COOKIE = "kite_admin_session";
 const STATE_COOKIE = "kite_oauth_state";
+const LOGIN_TICKET_TTL_SECONDS = 120;
 const POST_DIR = "src/content/posts";
 const UPLOAD_DIR = "public/uploads";
 const PROFILE_CONFIG_PATH = "src/config/profileConfig.ts";
@@ -232,6 +237,28 @@ async function signSession(env: Env, session: AdminSession) {
 	const payload = base64UrlEncode(JSON.stringify(session));
 	const signature = await hmac(secret, payload);
 	return `${payload}.${signature}`;
+}
+
+async function signLoginTicket(env: Env, session: AdminSession) {
+	const ticket: LoginTicket = {
+		...session,
+		purpose: "oauth-login",
+		exp: Math.floor(Date.now() / 1000) + LOGIN_TICKET_TTL_SECONDS,
+	};
+	const payload = base64UrlEncode(JSON.stringify(ticket));
+	const signature = await hmac(getSessionSecret(env), `ticket.${payload}`);
+	return `${payload}.${signature}`;
+}
+
+async function readLoginTicket(env: Env, value: string) {
+	if (!value?.includes(".")) return null;
+	const [payload, signature] = value.split(".");
+	const expected = await hmac(getSessionSecret(env), `ticket.${payload}`);
+	if (signature !== expected) return null;
+	const ticket = JSON.parse(base64UrlDecode(payload)) as LoginTicket;
+	if (ticket.purpose !== "oauth-login") return null;
+	if (!ticket.exp || ticket.exp < Math.floor(Date.now() / 1000)) return null;
+	return ticket;
 }
 
 async function readSession(request: Request, env: Env) {
@@ -1083,13 +1110,39 @@ async function handleOAuthCallback(request: Request, env: Env) {
 		avatarUrl: user.avatar_url || "",
 		exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
 	};
-	return redirect("/admin/posts/", {
-		"Set-Cookie": cookie(
-			SESSION_COOKIE,
-			await signSession(env, session),
-			SESSION_TTL_SECONDS,
-		),
-	});
+	const ticket = await signLoginTicket(env, session);
+	return redirect(`/admin/#login_ticket=${encodeURIComponent(ticket)}`);
+}
+
+async function handleSessionExchange(request: Request, env: Env) {
+	if (request.method !== "POST")
+		return json({ ok: false, error: "Method not allowed." }, { status: 405 });
+	const body = (await request.json().catch(() => null)) as {
+		ticket?: unknown;
+	} | null;
+	const ticket =
+		typeof body?.ticket === "string" ? await readLoginTicket(env, body.ticket) : null;
+	if (!ticket)
+		return json({ ok: false, error: "Invalid login ticket." }, { status: 401 });
+	const session: AdminSession = {
+		id: ticket.id,
+		login: ticket.login,
+		name: ticket.name,
+		avatarUrl: ticket.avatarUrl,
+		exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+	};
+	return json(
+		{ ok: true },
+		{
+			headers: {
+				"Set-Cookie": cookie(
+					SESSION_COOKIE,
+					await signSession(env, session),
+					SESSION_TTL_SECONDS,
+				),
+			},
+		},
+	);
 }
 
 async function handleSession(request: Request, env: Env) {
@@ -1519,6 +1572,8 @@ async function handleApi(request: Request, env: Env) {
 			}
 		}
 		if (pathname === "/api/auth/logout") return logout();
+		if (pathname === "/api/auth/session")
+			return await handleSessionExchange(request, env);
 		if (pathname === "/api/admin/session")
 			return await handleSession(request, env);
 		if (pathname === "/api/admin/posts")
