@@ -22,10 +22,10 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 	local: {
 		playlist: [
 			{
-				name: "使一颗心免于哀伤（哼唱）",
-				artist: "纯音乐",
-				url: "/assets/music/使一颗心免于哀伤-哼唱.mp3",
-				cover: "/assets/images/custom/cover-sea.jpg",
+				name: "正义之道",
+				artist: "黄渤",
+				url: "/assets/music/正义之道.mp3",
+				cover: "/assets/images/custom/cover-heart.jpg",
 			},
 		],
 	},
