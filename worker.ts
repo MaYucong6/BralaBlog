@@ -1512,8 +1512,16 @@ async function handleApi(request: Request, env: Env) {
 		if (
 			pathname === "/api/auth/github/callback" ||
 			pathname === "/api/github/callback"
-		)
-			return await handleOAuthCallback(request, env);
+		) {
+			try {
+				return await handleOAuthCallback(request, env);
+			} catch (error) {
+				console.error("GitHub OAuth callback failed:", error);
+				const message =
+					error instanceof Error ? error.message : "oauth_callback_failed";
+				return redirect(`/admin/?error=${encodeURIComponent(message)}`);
+			}
+		}
 		if (pathname === "/api/auth/logout") return logout();
 		if (pathname === "/api/admin/session")
 			return await handleSession(request, env);
