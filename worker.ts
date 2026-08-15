@@ -991,14 +991,9 @@ async function deleteGitHubFile(
 async function handleOAuthStart(request: Request, env: Env) {
 	const clientId = getRequiredEnv(env, "GITHUB_CLIENT_ID");
 	getRequiredEnv(env, "GITHUB_CLIENT_SECRET");
-	const origin = env.PUBLIC_SITE_URL || new URL(request.url).origin;
 	const state = crypto.randomUUID();
 	const authUrl = new URL("https://github.com/login/oauth/authorize");
 	authUrl.searchParams.set("client_id", clientId);
-	authUrl.searchParams.set(
-		"redirect_uri",
-		`${origin}/api/github/callback`,
-	);
 	authUrl.searchParams.set("scope", "read:user user:email");
 	authUrl.searchParams.set("state", state);
 	return redirect(authUrl.toString(), {
@@ -1014,7 +1009,6 @@ async function handleOAuthCallback(request: Request, env: Env) {
 		return redirect("/admin/?error=oauth_state");
 	}
 
-	const origin = env.PUBLIC_SITE_URL || url.origin;
 	const tokenResponse = await fetch(
 		"https://github.com/login/oauth/access_token",
 		{
@@ -1027,7 +1021,6 @@ async function handleOAuthCallback(request: Request, env: Env) {
 				client_id: getRequiredEnv(env, "GITHUB_CLIENT_ID"),
 				client_secret: getRequiredEnv(env, "GITHUB_CLIENT_SECRET"),
 				code,
-				redirect_uri: `${origin}/api/github/callback`,
 			}),
 		},
 	);
