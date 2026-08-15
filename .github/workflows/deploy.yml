@@ -39,6 +39,19 @@ jobs:
           rm -f dist-preview/pio/models/live2d/snow_miku/textures/texture_00.png
           rm -f "dist-preview/pio/models/spine/firefly/audio/使一颗心免于哀伤-哼唱.wav"
 
+      - name: Configure Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          GITHUB_REPO_TOKEN: ${{ secrets.GITHUB_REPO_TOKEN }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          printf '%s' "$GITHUB_CLIENT_ID" | pnpm exec wrangler secret put GITHUB_CLIENT_ID
+          printf '%s' "$GITHUB_CLIENT_SECRET" | pnpm exec wrangler secret put GITHUB_CLIENT_SECRET
+          printf '%s' "$GITHUB_REPO_TOKEN" | pnpm exec wrangler secret put GITHUB_REPO_TOKEN
+          printf '%s' "$SESSION_SECRET" | pnpm exec wrangler secret put SESSION_SECRET
+
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
