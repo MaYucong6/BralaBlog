@@ -144,6 +144,10 @@ function getRequiredEnv(env: Env, key: keyof Env) {
 	return String(value);
 }
 
+function getSessionSecret(env: Env) {
+	return env.SESSION_SECRET || getRequiredEnv(env, "GITHUB_CLIENT_SECRET");
+}
+
 function base64UrlEncode(value: string) {
 	const bytes = new TextEncoder().encode(value);
 	let binary = "";
@@ -224,7 +228,7 @@ async function hmac(secret: string, value: string) {
 }
 
 async function signSession(env: Env, session: AdminSession) {
-	const secret = getRequiredEnv(env, "SESSION_SECRET");
+	const secret = getSessionSecret(env);
 	const payload = base64UrlEncode(JSON.stringify(session));
 	const signature = await hmac(secret, payload);
 	return `${payload}.${signature}`;
@@ -234,7 +238,7 @@ async function readSession(request: Request, env: Env) {
 	const raw = getCookie(request, SESSION_COOKIE);
 	if (!raw?.includes(".")) return null;
 	const [payload, signature] = raw.split(".");
-	const expected = await hmac(getRequiredEnv(env, "SESSION_SECRET"), payload);
+	const expected = await hmac(getSessionSecret(env), payload);
 	if (signature !== expected) return null;
 	const session = JSON.parse(base64UrlDecode(payload)) as AdminSession;
 	if (!session.exp || session.exp < Math.floor(Date.now() / 1000)) return null;
@@ -987,7 +991,6 @@ async function deleteGitHubFile(
 async function handleOAuthStart(request: Request, env: Env) {
 	const clientId = getRequiredEnv(env, "GITHUB_CLIENT_ID");
 	getRequiredEnv(env, "GITHUB_CLIENT_SECRET");
-	getRequiredEnv(env, "SESSION_SECRET");
 	const origin = env.PUBLIC_SITE_URL || new URL(request.url).origin;
 	const state = crypto.randomUUID();
 	const authUrl = new URL("https://github.com/login/oauth/authorize");
