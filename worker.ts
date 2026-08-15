@@ -1083,17 +1083,13 @@ async function handleOAuthCallback(request: Request, env: Env) {
 		avatarUrl: user.avatar_url || "",
 		exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
 	};
-	const headers = new Headers({ Location: "/admin/posts/" });
-	headers.append(
-		"Set-Cookie",
-		cookie(
+	return redirect("/admin/posts/", {
+		"Set-Cookie": cookie(
 			SESSION_COOKIE,
 			await signSession(env, session),
 			SESSION_TTL_SECONDS,
 		),
-	);
-	headers.append("Set-Cookie", cookie(STATE_COOKIE, "", 0));
-	return new Response(null, { status: 302, headers });
+	});
 }
 
 async function handleSession(request: Request, env: Env) {
