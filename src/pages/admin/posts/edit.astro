@@ -1,0 +1,557 @@
+---
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "编辑文章";
+const description = "BralaBlog 文章编辑器";
+---
+
+<MainGridLayout title={title} description={description}>
+	<section class="edit-shell">
+		<header class="edit-header">
+			<div>
+				<p class="eyebrow">Editor</p>
+				<h1 data-page-title>新建文章</h1>
+				<p data-session-state>正在检查登录状态...</p>
+			</div>
+			<div class="edit-actions">
+				<a href="/admin/posts/" class="edit-button">
+					<Icon is:inline name="material-symbols:arrow-back-rounded" />
+					文章列表
+				</a>
+				<a href="/admin/posts/import/" class="edit-button">
+					<Icon is:inline name="material-symbols:upload-file-rounded" />
+					导入 MD
+				</a>
+				<a href="/admin/categories/" class="edit-button">
+					<Icon is:inline name="material-symbols:category-outline-rounded" />
+					分类
+				</a>
+				<button type="button" data-save class="edit-button primary">
+					<Icon is:inline name="material-symbols:cloud-upload-outline-rounded" />
+					保存
+				</button>
+			</div>
+		</header>
+
+		<div class="edit-grid">
+			<aside class="import-panel">
+				<div class="import-dropzone" data-dropzone>
+					<input type="file" accept=".md,.mdx,.markdown,text/markdown,image/png,image/jpeg,image/webp,image/gif,image/avif" data-file-input multiple hidden />
+					<Icon is:inline name="material-symbols:upload-file-rounded" class="drop-icon" />
+					<strong>拖拽 md 文件到这里</strong>
+					<p>或点击选择文件，自动填充标题、Slug、分类、标签、摘要和正文。</p>
+					<button type="button" class="edit-button" data-import>
+						<Icon is:inline name="material-symbols:file-open-rounded" />
+						选择文件
+					</button>
+				</div>
+				<div class="import-note">
+					<p>导入仅在浏览器读取文件，不会写入本地。</p>
+					<p>保存后会提交到 GitHub，Cloudflare 部署后前台同步更新。</p>
+				</div>
+			</aside>
+
+			<form id="post-form" class="edit-panel">
+				<div class="field-grid">
+					<label>
+						<span>标题</span>
+						<input name="title" value="新的博客文章" required autocomplete="off" />
+					</label>
+					<label>
+						<span>Slug</span>
+						<input name="slug" value="new-post" required autocomplete="off" />
+					</label>
+					<label>
+						<span>发布日期</span>
+						<input name="published" type="date" />
+					</label>
+					<label>
+						<span>分类</span>
+						<input name="category" value="随笔" list="category-options" autocomplete="off" />
+						<datalist id="category-options"></datalist>
+					</label>
+					<label>
+						<span>标签</span>
+						<input name="tags" value="BralaBlog, 随笔" autocomplete="off" />
+					</label>
+					<label>
+						<span>封面 URL</span>
+						<input name="image" placeholder="https://example.com/cover.jpg" />
+						<div class="asset-actions">
+							<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" data-image-input hidden />
+							<button type="button" class="edit-button" data-upload-cover>
+								<Icon is:inline name="material-symbols:add-photo-alternate-outline-rounded" />
+								上传封面
+							</button>
+							<button type="button" class="edit-button" data-upload-inline>
+								<Icon is:inline name="material-symbols:add-photo-alternate-outline-rounded" />
+								插入图片
+							</button>
+						</div>
+					</label>
+					<label class="span-2">
+						<span>摘要</span>
+						<input name="description" value="这里是文章摘要。" autocomplete="off" />
+					</label>
+					<label class="span-2">
+						<span>Markdown 正文</span>
+						<textarea name="body" rows="26" required>从这里开始写正文。</textarea>
+					</label>
+				</div>
+				<div class="edit-footer">
+					<p class="edit-status" data-status>等待操作。</p>
+					<div class="edit-actions">
+						<button type="button" data-save class="edit-button primary">保存</button>
+						<button type="button" data-delete class="edit-button danger">删除</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</section>
+
+	<script is:inline>
+		const form = document.getElementById("post-form");
+		const statusEl = document.querySelector("[data-status]");
+		const sessionEl = document.querySelector("[data-session-state]");
+		const titleEl = document.querySelector("[data-page-title]");
+		const categoryOptions = document.getElementById("category-options");
+		const params = new URLSearchParams(location.search);
+		const editingSlug = params.get("slug") || "";
+		const fileInput = document.querySelector("[data-file-input]");
+		const imageInput = document.querySelector("[data-image-input]");
+		const importButton = document.querySelector("[data-import]");
+		const uploadCoverButton = document.querySelector("[data-upload-cover]");
+		const uploadInlineButton = document.querySelector("[data-upload-inline]");
+		const dropzone = document.querySelector("[data-dropzone]");
+		const pendingImport = sessionStorage.getItem("kiteblog:import-post");
+		let imageTarget = "inline";
+
+		function escapeHtml(value) {
+			return String(value || "").replace(/[&<>"']/g, (char) => ({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;",
+			})[char]);
+		}
+
+		function setStatus(message, state = "info") {
+			if (!statusEl) return;
+			statusEl.textContent = message;
+			statusEl.dataset.state = state;
+		}
+
+		async function apiRequest(url, options = {}) {
+			const headers = new Headers(options.headers || {});
+			if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+			const response = await fetch(url, { ...options, headers, cache: "no-store" });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok || payload.ok === false) {
+				throw new Error(payload.error || `请求失败: ${response.status}`);
+			}
+			return payload;
+		}
+
+		function today() {
+			return new Date().toISOString().slice(0, 10);
+		}
+
+		function readForm() {
+			return {
+				title: form.elements.title.value.trim(),
+				slug: form.elements.slug.value.trim(),
+				published: form.elements.published.value || today(),
+				category: form.elements.category.value.trim(),
+				tags: form.elements.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
+				description: form.elements.description.value.trim(),
+				image: form.elements.image.value.trim(),
+				body: form.elements.body.value.trim(),
+			};
+		}
+
+		function fillForm(post) {
+			form.elements.title.value = post.title || "";
+			form.elements.slug.value = post.slug || editingSlug;
+			form.elements.slug.readOnly = true;
+			form.elements.published.value = post.published || today();
+			form.elements.category.value = post.category || "";
+			form.elements.tags.value = (post.tags || []).join(", ");
+			form.elements.description.value = post.description || "";
+			form.elements.image.value = post.image || "";
+			form.elements.body.value = post.body || "";
+			if (titleEl) titleEl.textContent = `编辑：${post.title || post.slug || "未命名"}`;
+		}
+
+		function parseFrontmatter(markdown) {
+			const match = String(markdown || "").match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+			const meta = match ? match[1] : "";
+			const body = match ? match[2] : String(markdown || "");
+			const read = (key) => {
+				const line = meta.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
+				return line ? line[1].trim().replace(/^["']|["']$/g, "") : "";
+			};
+			const tagsMatch = meta.match(/^tags:\s*\[([\s\S]*?)\]$/m);
+			const tags = tagsMatch
+				? tagsMatch[1].split(",").map((tag) => tag.trim().replace(/^["']|["']$/g, "")).filter(Boolean)
+				: [];
+			return {
+				title: read("title"),
+				slug: read("slug"),
+				published: read("published"),
+				category: read("category"),
+				tags,
+				description: read("description"),
+				image: read("image"),
+				body: body.trim(),
+			};
+		}
+
+		async function loadCategories() {
+			const payload = await apiRequest("/api/admin/categories");
+			if (!categoryOptions) return;
+			categoryOptions.innerHTML = (payload.categories || [])
+				.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.count)} 篇</option>`)
+				.join("");
+		}
+
+		async function checkSession() {
+			const payload = await apiRequest("/api/admin/session");
+			if (!payload.authenticated) {
+				if (sessionEl) sessionEl.innerHTML = '<a href="/api/auth/github/start">使用 GitHub 登录</a>';
+				form.hidden = true;
+				return false;
+			}
+			if (sessionEl) sessionEl.textContent = `已登录：@${payload.user.login}`;
+			return true;
+		}
+
+		async function loadPost() {
+			await loadCategories();
+			if (pendingImport) {
+				sessionStorage.removeItem("kiteblog:import-post");
+				try {
+					const imported = JSON.parse(pendingImport);
+					fillForm(imported);
+					form.elements.slug.readOnly = false;
+					setStatus("已载入导入内容。", "success");
+					return;
+				} catch {
+					sessionStorage.removeItem("kiteblog:import-post");
+				}
+			}
+			if (!editingSlug) {
+				form.elements.published.value = today();
+				document.querySelector("[data-delete]").hidden = true;
+				return;
+			}
+			setStatus("正在读取文章...", "info");
+			const payload = await apiRequest(`/api/admin/posts/${encodeURIComponent(editingSlug)}`);
+			fillForm(payload.post);
+			setStatus("文章已载入。", "success");
+		}
+
+		function fileKey(path) {
+			return String(path || "").replace(/\\/g, "/").replace(/^\.?\//, "").toLowerCase();
+		}
+
+		function isMarkdownFile(file) {
+			return /\.(md|mdx|markdown)$/i.test(file.name || "");
+		}
+
+		function isImageFile(file) {
+			return /^image\/(png|jpeg|webp|gif|avif)$/.test(file.type) || /\.(png|jpe?g|webp|gif|avif)$/i.test(file.name || "");
+		}
+
+		function publicImagePath(value) {
+			const raw = String(value || "").trim();
+			if (!raw || /^(https?:|data:|\/)/i.test(raw) || raw.startsWith("#")) return null;
+			return fileKey(decodeURIComponent(raw.split(/[?#]/)[0]));
+		}
+
+		function markdownImagePaths(markdown) {
+			const paths = new Set();
+			const imagePattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+			for (const match of String(markdown || "").matchAll(imagePattern)) {
+				const path = publicImagePath(match[1]);
+				if (path) paths.add(path);
+			}
+			const htmlPattern = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+			for (const match of String(markdown || "").matchAll(htmlPattern)) {
+				const path = publicImagePath(match[1]);
+				if (path) paths.add(path);
+			}
+			return Array.from(paths);
+		}
+
+		function buildFileMap(files) {
+			const map = new Map();
+			for (const file of files) {
+				if (!isImageFile(file)) continue;
+				const relative = file.webkitRelativePath || file.name;
+				const keys = [relative, file.name].map(fileKey);
+				const segments = fileKey(relative).split("/");
+				for (let index = 0; index < segments.length; index++) keys.push(segments.slice(index).join("/"));
+				for (const key of keys) if (key && !map.has(key)) map.set(key, file);
+			}
+			return map;
+		}
+
+		function resolveImageFile(path, fileMap) {
+			const key = fileKey(path).replace(/^(\.\.\/)+/, "");
+			if (fileMap.has(key)) return fileMap.get(key);
+			const fileName = key.split("/").pop();
+			return fileName ? fileMap.get(fileName) : null;
+		}
+
+		async function uploadAsset(file, slug, name = "") {
+			if (!isImageFile(file)) throw new Error("只支持 png、jpg、jpeg、webp、gif、avif 图片。");
+			const body = new FormData();
+			body.set("file", file);
+			body.set("slug", slug || form.elements.slug.value || "draft");
+			if (name) body.set("name", name);
+			const payload = await apiRequest("/api/admin/assets", { method: "POST", body });
+			return payload.url;
+		}
+
+		function replaceMarkdownPath(markdown, from, to) {
+			const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return String(markdown || "")
+				.replace(new RegExp(`(\\]\\()${escaped}((?:\\s+"[^"]*")?\\))`, "g"), `$1${to}$2`)
+				.replace(new RegExp(`(\\bsrc=["'])${escaped}(["'])`, "gi"), `$1${to}$2`);
+		}
+
+		async function uploadLocalImages(markdown, files, slug) {
+			const fileMap = buildFileMap(files);
+			let next = markdown;
+			const missing = [];
+			for (const path of markdownImagePaths(markdown)) {
+				const file = resolveImageFile(path, fileMap);
+				if (!file) {
+					missing.push(path);
+					continue;
+				}
+				setStatus(`正在上传图片：${file.name}`, "info");
+				const url = await uploadAsset(file, slug, file.name);
+				next = replaceMarkdownPath(next, path, url);
+			}
+			if (missing.length) setStatus(`这些本地图片没有找到：${missing.join(", ")}`, "error");
+			return next;
+		}
+
+		function insertAtCursor(textarea, text) {
+			const start = textarea.selectionStart ?? textarea.value.length;
+			const end = textarea.selectionEnd ?? textarea.value.length;
+			textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`;
+			const next = start + text.length;
+			textarea.focus();
+			textarea.setSelectionRange(next, next);
+		}
+
+		function importMarkdown(markdown, fileName = "") {
+			const parsed = parseFrontmatter(markdown);
+			const base = fileName.replace(/\.(md|mdx|markdown)$/i, "") || "imported-post";
+			form.elements.title.value = parsed.title || base;
+			form.elements.slug.value = parsed.slug || base;
+			form.elements.slug.readOnly = false;
+			form.elements.published.value = parsed.published || today();
+			form.elements.category.value = parsed.category || "随笔";
+			form.elements.tags.value = (parsed.tags || []).join(", ");
+			form.elements.description.value = parsed.description || "";
+			form.elements.image.value = parsed.image || "";
+			form.elements.body.value = parsed.body || "";
+			if (titleEl) titleEl.textContent = `编辑：${parsed.title || base}`;
+			setStatus("已导入 Markdown 文件。", "success");
+		}
+
+		async function readFiles(files) {
+			const list = Array.from(files || []);
+			const markdownFile = list.find(isMarkdownFile);
+			if (!markdownFile) {
+				const imageFile = list.find(isImageFile);
+				if (!imageFile) return;
+				const url = await uploadAsset(imageFile, form.elements.slug.value || "draft", imageFile.name);
+				insertAtCursor(form.elements.body, `\n![${imageFile.name}](${url})\n`);
+				setStatus(`图片已上传：${url}`, "success");
+				return;
+			}
+			let text = await markdownFile.text();
+			const parsed = parseFrontmatter(text);
+			const slug = parsed.slug || markdownFile.name.replace(/\.(md|mdx|markdown)$/i, "") || "imported-post";
+			text = await uploadLocalImages(text, list, slug);
+			importMarkdown(text, markdownFile.name);
+		}
+
+		function openFilePicker() {
+			fileInput?.click();
+		}
+
+		importButton?.addEventListener("click", openFilePicker);
+		fileInput?.addEventListener("change", async (event) => {
+			const files = event.target.files;
+			if (!files?.length) return;
+			await readFiles(files);
+			fileInput.value = "";
+		});
+		dropzone?.addEventListener("dragover", (event) => {
+			event.preventDefault();
+			dropzone.classList.add("dragover");
+		});
+		dropzone?.addEventListener("dragleave", () => {
+			dropzone.classList.remove("dragover");
+		});
+		dropzone?.addEventListener("drop", async (event) => {
+			event.preventDefault();
+			dropzone.classList.remove("dragover");
+			const files = event.dataTransfer?.files;
+			if (!files?.length) return;
+			await readFiles(files);
+		});
+
+		uploadCoverButton?.addEventListener("click", () => {
+			imageTarget = "cover";
+			imageInput?.click();
+		});
+		uploadInlineButton?.addEventListener("click", () => {
+			imageTarget = "inline";
+			imageInput?.click();
+		});
+		imageInput?.addEventListener("change", async (event) => {
+			const file = event.target.files?.[0];
+			if (!file) return;
+			try {
+				setStatus(`正在上传图片：${file.name}`, "info");
+				const url = await uploadAsset(file, form.elements.slug.value || "draft", file.name);
+				if (imageTarget === "cover") {
+					form.elements.image.value = url;
+				} else {
+					insertAtCursor(form.elements.body, `\n![${file.name}](${url})\n`);
+				}
+				setStatus(`图片已上传：${url}`, "success");
+			} catch (error) {
+				setStatus(error.message, "error");
+			} finally {
+				imageInput.value = "";
+			}
+		});
+		form.elements.body?.addEventListener("paste", async (event) => {
+			const file = Array.from(event.clipboardData?.files || []).find(isImageFile);
+			if (!file) return;
+			event.preventDefault();
+			try {
+				setStatus(`正在上传图片：${file.name || "pasted-image.png"}`, "info");
+				const url = await uploadAsset(file, form.elements.slug.value || "draft", file.name || "pasted-image.png");
+				insertAtCursor(form.elements.body, `\n![${file.name || "图片"}](${url})\n`);
+				setStatus(`图片已上传：${url}`, "success");
+			} catch (error) {
+				setStatus(error.message, "error");
+			}
+		});
+
+		async function savePost() {
+			const post = readForm();
+			if (!post.title || !post.slug || !post.body) {
+				setStatus("标题、Slug 和正文不能为空。", "error");
+				return;
+			}
+			document.querySelectorAll("[data-save]").forEach((button) => button.disabled = true);
+			setStatus("正在保存到 GitHub...", "info");
+			try {
+				if (editingSlug) {
+					await apiRequest(`/api/admin/posts/${encodeURIComponent(editingSlug)}`, {
+						method: "PUT",
+						body: JSON.stringify(post),
+					});
+				} else {
+					await apiRequest("/api/admin/posts", {
+						method: "POST",
+						body: JSON.stringify(post),
+					});
+					history.replaceState(null, "", `/admin/posts/edit/?slug=${encodeURIComponent(post.slug)}`);
+					form.elements.slug.readOnly = true;
+				}
+				await loadCategories();
+				setStatus("已提交到 GitHub，Cloudflare 部署后前台会更新。", "success");
+			} catch (error) {
+				setStatus(error.message, "error");
+			} finally {
+				document.querySelectorAll("[data-save]").forEach((button) => button.disabled = false);
+			}
+		}
+
+		async function deletePost() {
+			const slug = editingSlug || form.elements.slug.value.trim();
+			if (!slug) return;
+			if (!confirm(`确定删除 ${slug} 吗？`)) return;
+			setStatus("正在删除...", "info");
+			try {
+				await apiRequest(`/api/admin/posts/${encodeURIComponent(slug)}`, { method: "DELETE" });
+				location.href = "/admin/posts/";
+			} catch (error) {
+				setStatus(error.message, "error");
+			}
+		}
+
+		document.querySelectorAll("[data-save]").forEach((button) => button.addEventListener("click", savePost));
+		document.querySelector("[data-delete]")?.addEventListener("click", deletePost);
+		checkSession().then((ok) => {
+			if (ok) loadPost().catch((error) => setStatus(escapeHtml(error.message), "error"));
+		});
+	</script>
+</MainGridLayout>
+
+<style>
+	.edit-shell { display: grid; gap: 1rem; }
+	.edit-header, .edit-panel, .import-panel {
+		border: 1px solid var(--line-divider);
+		border-radius: 12px;
+		background: color-mix(in oklch, var(--card-bg) 82%, transparent);
+		box-shadow: var(--surface-shadow);
+		backdrop-filter: saturate(1.14) blur(var(--kite-glass-strength, 16px));
+	}
+	.edit-header { display: flex; justify-content: space-between; gap: 1rem; padding: clamp(1.2rem, 3vw, 2rem); }
+	.eyebrow { margin: 0 0 .45rem; color: var(--primary); font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+	h1 { margin: 0; font-size: clamp(1.9rem, 4vw, 3.1rem); line-height: 1.05; letter-spacing: 0; }
+	.edit-header p { margin: .5rem 0 0; color: var(--content-meta); line-height: 1.7; }
+	.edit-grid { display: grid; grid-template-columns: minmax(16rem, 19rem) minmax(0, 1fr); gap: 1rem; }
+	.import-panel, .edit-panel { padding: 1rem; }
+	.import-dropzone {
+		display: grid; gap: .75rem; place-items: center; text-align: center;
+		padding: 1.1rem; min-height: 17rem; border: 1px dashed var(--line-divider); border-radius: 10px;
+		background: color-mix(in oklch, var(--card-bg) 60%, transparent);
+	}
+	.import-dropzone.dragover { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, var(--card-bg)); }
+	.drop-icon { font-size: 2rem; color: var(--primary); }
+	.import-note { margin-top: .9rem; color: var(--content-meta); line-height: 1.6; }
+	.edit-actions, .edit-footer { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; justify-content: space-between; }
+	.edit-button {
+		display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 2.45rem;
+		border: 1px solid color-mix(in oklch, var(--primary) 20%, var(--line-divider)); border-radius: 8px;
+		padding: .6rem .8rem; color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent);
+		font-weight: 800; text-decoration: none; cursor: pointer;
+	}
+	.edit-button.primary { color: white; background: linear-gradient(135deg, var(--primary), oklch(0.66 0.15 22)); }
+	.edit-button.danger { color: oklch(0.56 0.18 25); }
+	.asset-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .55rem; }
+	.asset-actions .edit-button { flex: 1; min-width: 8rem; }
+	.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 .85rem; }
+	.span-2 { grid-column: 1 / -1; }
+	label { display: grid; gap: .4rem; margin-bottom: .9rem; font-weight: 700; }
+	label span { color: var(--content-meta); font-size: .84rem; }
+	input, textarea {
+		width: 100%; min-width: 0; border: 1px solid var(--line-divider); border-radius: 8px;
+		padding: .75rem .85rem; color: inherit; background: color-mix(in oklch, var(--card-bg) 70%, transparent); outline: none;
+	}
+	input:focus, textarea:focus { border-color: var(--primary); }
+	input[readonly] { opacity: .75; }
+	textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.6; }
+	.edit-status {
+		flex: 1; min-width: 14rem; border: 1px solid var(--line-divider); border-radius: 8px; margin: 0;
+		padding: .75rem; color: var(--content-meta); background: color-mix(in oklch, var(--card-bg) 64%, transparent); font-weight: 800;
+	}
+	.edit-status[data-state="success"] { color: oklch(0.55 0.14 155); }
+	.edit-status[data-state="error"] { color: oklch(0.56 0.18 25); }
+	@media (max-width: 900px) { .edit-grid { grid-template-columns: 1fr; } }
+	@media (max-width: 760px) { .edit-header { flex-direction: column; } .field-grid { grid-template-columns: 1fr; } .span-2 { grid-column: auto; } .edit-actions, .edit-button { width: 100%; } }
+</style>

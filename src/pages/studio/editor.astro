@@ -1,0 +1,15 @@
+---
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "编辑器已迁移";
+const description = "BralaBlog 编辑器已迁移到后台。";
+---
+
+<MainGridLayout title={title} description={description}>
+	<p>正在打开文章编辑器...</p>
+	<script is:inline>
+		const params = new URLSearchParams(location.search);
+		const slug = params.get("slug");
+		location.replace(slug ? `/admin/posts/edit/?slug=${encodeURIComponent(slug)}` : "/admin/posts/edit/");
+	</script>
+</MainGridLayout>

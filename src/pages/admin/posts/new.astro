@@ -1,0 +1,13 @@
+---
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "新建文章";
+const description = "跳转到 BralaBlog 文章编辑器。";
+---
+
+<MainGridLayout title={title} description={description}>
+	<p>正在打开编辑器...</p>
+	<script is:inline>
+		location.replace("/admin/posts/edit/");
+	</script>
+</MainGridLayout>

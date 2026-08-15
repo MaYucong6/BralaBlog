@@ -1,0 +1,13 @@
+---
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "文章页已迁移";
+const description = "BralaBlog 文章已统一进入静态归档。";
+---
+
+<MainGridLayout title={title} description={description}>
+	<p>正在打开文章归档...</p>
+	<script is:inline>
+		location.replace("/archive/");
+	</script>
+</MainGridLayout>

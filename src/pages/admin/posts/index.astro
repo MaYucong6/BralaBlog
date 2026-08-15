@@ -1,0 +1,165 @@
+---
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "文章管理";
+const description = "BralaBlog 文章新增、编辑、删除和搜索。";
+---
+
+<MainGridLayout title={title} description={description}>
+	<section class="posts-shell">
+		<header class="posts-header">
+			<div>
+				<p class="eyebrow">Posts</p>
+				<h1>文章管理</h1>
+				<p data-session-state>正在检查登录状态...</p>
+			</div>
+			<div class="posts-actions">
+				<a href="/admin/posts/edit/" class="posts-button primary">
+					<Icon is:inline name="material-symbols:add-circle-outline-rounded" />
+					新建文章
+				</a>
+				<a href="/admin/categories/" class="posts-button">分类</a>
+				<a href="/admin/links/" class="posts-button">个人链接</a>
+				<a href="/admin/friends/" class="posts-button">友链</a>
+				<a href="/admin/settings/" class="posts-button">设置</a>
+			</div>
+		</header>
+
+		<div class="posts-panel">
+			<div class="toolbar">
+				<input data-search placeholder="搜索标题、slug、分类或标签" />
+				<button type="button" data-refresh>
+					<Icon is:inline name="material-symbols:refresh-rounded" />
+					刷新
+				</button>
+			</div>
+			<div class="post-list" data-post-list>
+				<p class="empty-state">正在读取文章...</p>
+			</div>
+		</div>
+	</section>
+
+	<script is:inline>
+		const stateEl = document.querySelector("[data-session-state]");
+		const listEl = document.querySelector("[data-post-list]");
+		const searchEl = document.querySelector("[data-search]");
+		let posts = [];
+
+		function escapeHtml(value) {
+			return String(value || "").replace(/[&<>"']/g, (char) => ({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;",
+			})[char]);
+		}
+
+		async function apiRequest(url, options = {}) {
+			const response = await fetch(url, { ...options, cache: "no-store" });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok || payload.ok === false) {
+				throw new Error(payload.error || `请求失败：${response.status}`);
+			}
+			return payload;
+		}
+
+		function renderPosts() {
+			const query = searchEl?.value?.trim?.().toLowerCase() || "";
+			const filtered = posts.filter((post) => {
+				if (!query) return true;
+				return [post.title, post.slug, post.category, post.description, ...(post.tags || [])].join(" ").toLowerCase().includes(query);
+			});
+			if (!listEl) return;
+			if (!filtered.length) {
+				listEl.innerHTML = '<p class="empty-state">没有找到文章。</p>';
+				return;
+			}
+			listEl.innerHTML = filtered.map((post) => `<article class="post-item">
+				<div class="post-main">
+					<strong>${escapeHtml(post.title || post.slug)}</strong>
+					<p>${escapeHtml(post.description || "暂无摘要")}</p>
+					<span>${escapeHtml(post.published || "未设置日期")} · ${escapeHtml(post.category || "未分类")} · ${escapeHtml((post.tags || []).join(", ") || "无标签")}</span>
+				</div>
+				<div class="item-actions">
+					<a href="/posts/${encodeURIComponent(post.slug)}/" target="_blank" rel="noreferrer">查看</a>
+					<a href="/admin/posts/edit/?slug=${encodeURIComponent(post.slug)}">编辑</a>
+					<button type="button" data-delete="${escapeHtml(post.slug)}">删除</button>
+				</div>
+			</article>`).join("");
+		}
+
+		async function loadPosts() {
+			if (listEl) listEl.innerHTML = '<p class="empty-state">正在读取文章...</p>';
+			try {
+				const session = await apiRequest("/api/admin/session");
+				if (!session.authenticated) {
+					stateEl.textContent = "未登录";
+					listEl.innerHTML = '<a class="login-link" href="/api/auth/github/start">使用 GitHub 登录</a>';
+					return;
+				}
+				stateEl.textContent = `已登录：@${session.user.login}`;
+				const payload = await apiRequest("/api/admin/posts");
+				posts = payload.posts || [];
+				renderPosts();
+			} catch (error) {
+				if (listEl) listEl.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
+			}
+		}
+
+		async function deletePost(slug) {
+			if (!confirm(`确定删除文章 ${slug} 吗？这个操作会提交到 GitHub。`)) return;
+			try {
+				await apiRequest(`/api/admin/posts/${encodeURIComponent(slug)}`, { method: "DELETE" });
+				posts = posts.filter((post) => post.slug !== slug);
+				renderPosts();
+			} catch (error) {
+				alert(error.message);
+			}
+		}
+
+		searchEl?.addEventListener("input", renderPosts);
+		document.querySelector("[data-refresh]")?.addEventListener("click", loadPosts);
+		listEl?.addEventListener("click", (event) => {
+			const target = event.target instanceof HTMLElement ? event.target.closest("[data-delete]") : null;
+			const slug = target?.getAttribute("data-delete");
+			if (slug) deletePost(slug);
+		});
+		loadPosts();
+	</script>
+</MainGridLayout>
+
+<style>
+	.posts-shell { display: grid; gap: 1rem; }
+	.posts-header, .posts-panel, .post-item {
+		border: 1px solid var(--line-divider);
+		border-radius: 12px;
+		background: color-mix(in oklch, var(--card-bg) 82%, transparent);
+		box-shadow: var(--surface-shadow);
+		backdrop-filter: saturate(1.14) blur(var(--kite-glass-strength, 16px));
+	}
+	.posts-header { display: flex; justify-content: space-between; gap: 1rem; padding: clamp(1.2rem, 3vw, 2rem); }
+	.eyebrow { margin: 0 0 .45rem; color: var(--primary); font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+	h1 { margin: 0; font-size: clamp(1.9rem, 4vw, 3.1rem); line-height: 1.05; letter-spacing: 0; }
+	.posts-header p, .post-item p { margin: .5rem 0 0; color: var(--content-meta); line-height: 1.7; }
+	.posts-actions, .item-actions, .toolbar { display: flex; flex-wrap: wrap; gap: .65rem; }
+	.posts-button, .item-actions a, button, .login-link {
+		display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 2.45rem;
+		border: 1px solid color-mix(in oklch, var(--primary) 20%, var(--line-divider)); border-radius: 8px;
+		padding: .6rem .8rem; color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent);
+		font-weight: 800; text-decoration: none; cursor: pointer;
+	}
+	.posts-button.primary { color: white; background: linear-gradient(135deg, var(--primary), oklch(0.66 0.15 22)); }
+	.item-actions button { color: oklch(0.56 0.18 25); }
+	.posts-panel { padding: 1rem; }
+	.toolbar { margin-bottom: 1rem; }
+	.toolbar input { flex: 1; min-width: 14rem; border: 1px solid var(--line-divider); border-radius: 8px; padding: .75rem .85rem; color: inherit; background: color-mix(in oklch, var(--card-bg) 70%, transparent); }
+	.post-list { display: grid; gap: .8rem; }
+	.post-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; padding: 1rem; }
+	.post-main { min-width: 0; }
+	.post-item strong { display: block; font-size: 1.1rem; overflow-wrap: anywhere; }
+	.post-item span, .empty-state { color: var(--content-meta); }
+	.error-text { color: oklch(0.56 0.18 25); font-weight: 800; }
+	@media (max-width: 760px) { .posts-header, .post-item { grid-template-columns: 1fr; flex-direction: column; } .item-actions a, .item-actions button { flex: 1; } }
+</style>
