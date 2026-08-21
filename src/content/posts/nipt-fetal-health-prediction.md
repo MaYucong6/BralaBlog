@@ -568,3 +568,143 @@ $$
 [6] Fawcett T. An introduction to ROC analysis[J]. Pattern Recognition Letters, 2006, 27(8): 861-874.
 
 [7] Youden WJ. Index for rating diagnostic tests[J]. Cancer, 1950, 3(1): 32-35.
+
+---
+
+## 附录
+
+### 附录 A 支撑材料文件列表
+
+| 文件 | 功能 | 运行环境 |
+|:----:|:----:|:----:|
+| 1_数据/附件.xlsx | 原始 NIPT 检测数据（1687 例 × 31 字段） | — |
+| 1_数据/data_contract.json | 数据契约（字段指纹与统计量） | — |
+| 2_代码/01_问题1/model_baseline.py | 问题一基线模型（逻辑回归 + 随机森林） | Python 3.13 |
+| 2_代码/01_问题1/model_simple.py | 问题一 Z 值组合阈值模型 | Python 3.13 |
+| 2_代码/02_问题2/sensitivity_analysis.py | 问题二阈值敏感性分析 | Python 3.13 |
+| 2_代码/03_问题3/feature_importance.py | 问题三特征重要性分析 | Python 3.13 |
+| 2_代码/04_问题4/model_evaluation.py | 问题四模型评价与改进 | Python 3.13 |
+| 2_代码/common/make_figures.py | 论文图表生成脚本 | Python 3.13 |
+| 3_图表/图1-图8.png | 论文全部图表 | — |
+
+### 附录 B 核心代码
+
+#### B.1 问题一：Z 值组合阈值模型（model_simple.py）
+
+```python
+# -*- coding: utf-8 -*-
+# 数据来源: 1_数据/data_contract.json
+# 对象数: 5
+import pandas as pd
+import numpy as np
+
+male_df = pd.read_excel('1_数据/附件.xlsx', sheet_name='男胎检测数据')
+male_df.columns = male_df.columns.str.strip()
+male_df['label'] = (male_df['胎儿是否健康'] == '是').astype(int)
+
+feature_cols = ['年龄', '孕妇BMI', '13号染色体的Z值', '18号染色体的Z值',
+                '21号染色体的Z值', 'X染色体的Z值', 'Y染色体的Z值']
+male_df['怀孕次数'] = pd.to_numeric(male_df['怀孕次数'], errors='coerce')
+X = male_df[feature_cols].fillna(male_df[feature_cols].mean())
+y = male_df['label']
+
+np.random.seed(42)
+n = len(X)
+indices = np.random.permutation(n)
+train_idx = indices[:int(0.8 * n)]
+test_idx = indices[int(0.8 * n):]
+X_train, X_test = X.iloc[train_idx].values, X.iloc[test_idx].values
+y_train, y_test = y.iloc[train_idx].values, y.iloc[test_idx].values
+
+# 规则1：18号染色体 Z 值单特征阈值
+z18_idx = feature_cols.index('18号染色体的Z值')
+threshold_18 = 1.0
+y_pred_rule1 = (X_test[:, z18_idx] <= threshold_18).astype(int)
+
+# 规则2：Z 值组合阈值模型（OR 逻辑）
+age_idx = feature_cols.index('年龄')
+z13_idx = feature_cols.index('13号染色体的Z值')
+age_threshold = 32.0
+high_risk = (X_test[:, z18_idx] > threshold_18) | \
+            (X_test[:, age_idx] > age_threshold) | \
+            (X_test[:, z13_idx] > 0.8)
+y_pred_rule2 = (~high_risk).astype(int)
+
+# 评价指标
+def evaluate(y_true, y_pred):
+    tp = ((y_pred == 0) & (y_true == 0)).sum()
+    fn = ((y_pred == 1) & (y_true == 0)).sum()
+    fp = ((y_pred == 0) & (y_true == 1)).sum()
+    tn = ((y_pred == 1) & (y_true == 1)).sum()
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    acc = (y_pred == y_true).mean()
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    return acc, recall, precision, f1
+
+acc1, rec1, pre1, f11 = evaluate(y_test, y_pred_rule1)
+acc2, rec2, pre2, f12 = evaluate(y_test, y_pred_rule2)
+print(f"规则1: 准确率={acc1:.4f} 召回率={rec1:.4f} 精确率={pre1:.4f} F1={f11:.4f}")
+print(f"规则2: 准确率={acc2:.4f} 召回率={rec2:.4f} 精确率={pre2:.4f} F1={f12:.4f}")
+```
+
+#### B.2 问题二：阈值敏感性分析（sensitivity_analysis.py）
+
+```python
+# -*- coding: utf-8 -*-
+# 数据来源: 1_数据/data_contract.json
+# 对象数: 5
+import pandas as pd
+import numpy as np
+
+male_df = pd.read_excel('1_数据/附件.xlsx', sheet_name='男胎检测数据')
+male_df.columns = male_df.columns.str.strip()
+male_df['label'] = (male_df['胎儿是否健康'] == '是').astype(int)
+
+feature_cols = ['年龄', '孕妇BMI', '13号染色体的Z值', '18号染色体的Z值',
+                '21号染色体的Z值', 'X染色体的Z值', 'Y染色体的Z值']
+male_df['怀孕次数'] = pd.to_numeric(male_df['怀孕次数'], errors='coerce')
+X = male_df[feature_cols].fillna(male_df[feature_cols].mean())
+y = male_df['label']
+
+np.random.seed(42)
+n = len(X)
+indices = np.random.permutation(n)
+train_idx = indices[:int(0.8 * n)]
+test_idx = indices[int(0.8 * n):]
+X_test = X.iloc[test_idx].values
+y_test = y.iloc[test_idx].values
+
+z18_idx = feature_cols.index('18号染色体的Z值')
+age_idx = feature_cols.index('年龄')
+z13_idx = feature_cols.index('13号染色体的Z值')
+
+# 1) 18号染色体 Z 值阈值敏感性
+for th in [0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
+    y_pred = (X_test[:, z18_idx] <= th).astype(int)
+    tp = ((y_pred == 0) & (y_test == 0)).sum()
+    fn = ((y_pred == 1) & (y_test == 0)).sum()
+    fp = ((y_pred == 0) & (y_test == 1)).sum()
+    tn = ((y_pred == 1) & (y_test == 1)).sum()
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+    youden = recall - fpr
+    print(f"阈值={th}: 召回率={recall:.4f} FPR={fpr:.4f} Youden={youden:.4f}")
+
+# 2) 组合策略对比
+strategies = [('保守策略', 0.8, 30, 0.6),
+              ('平衡策略', 1.0, 32, 0.8),
+              ('激进策略', 1.5, 35, 1.2)]
+for name, z18_th, age_th, z13_th in strategies:
+    high_risk = (X_test[:, z18_idx] > z18_th) | \
+                (X_test[:, age_idx] > age_th) | \
+                (X_test[:, z13_idx] > z13_th)
+    y_pred = (~high_risk).astype(int)
+    tp = ((y_pred == 0) & (y_test == 0)).sum()
+    fn = ((y_pred == 1) & (y_test == 0)).sum()
+    fp = ((y_pred == 0) & (y_test == 1)).sum()
+    tn = ((y_pred == 1) & (y_test == 1)).sum()
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+    print(f"{name}: 召回率={recall:.4f} 误报率={fpr:.4f}")
+```
